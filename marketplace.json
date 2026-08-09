@@ -1,0 +1,12 @@
+{
+  "name": "digi-tools",
+  "owner": { "name": "mherman22" },
+  "plugins": [
+    {
+      "name": "pr-review-kit",
+      "source": "./",
+      "description": "PR review skill shared by CI and local sessions.",
+      "version": "1.0.0"
+    }
+  ]
+}
