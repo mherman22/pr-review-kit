@@ -1,6 +1,7 @@
 {
   "name": "digi-tools",
   "owner": { "name": "mherman22" },
+  "description": "Review tooling shared between CI runners and local Claude Code sessions.",
   "plugins": [
     {
       "name": "pr-review-kit",

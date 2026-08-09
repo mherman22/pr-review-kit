@@ -24,27 +24,54 @@ by hand — same skill, better model — when a PR deserves it.
 The 👍 exists so a clean sweep is distinguishable from a sweep that never ran.
 An empty PR thread is ambiguous; a thumbs-up is not.
 
+## Prerequisites
+
+Both paths shell out to real tools. Before anything works you need:
+
+| Tool | Why | Check |
+|---|---|---|
+| Claude Code with plugin support | `/plugin` marketplaces | `claude --version` |
+| `gh` CLI, authenticated | every PR read and every comment posted | `gh auth status` |
+| `git` | the cached checkouts in §3 of the skill | `git --version` |
+| `jq` | JSON handling in the skill's `gh api` calls | `jq --version` |
+
+The CI path additionally needs the [Claude GitHub App](https://github.com/apps/claude)
+installed on the org, and a `CLAUDE_CODE_OAUTH_TOKEN` secret (see below).
+
+> `/plugin` and `/pr-review` are **Claude Code slash commands**. Type them at the
+> Claude Code prompt, not in your shell. `zsh: command not found: plugin` means
+> you're in the wrong place.
+
 ## Setup
 
-### 1. Publish this repo
+### 1. Use it as-is, or fork it
 
-Push it somewhere both your laptop and GitHub Actions can reach:
+The marketplace lives at `mherman22/pr-review-kit` and is public, so you can
+install it directly — skip to §2.
+
+To run your own copy, push this repo somewhere both your laptop and GitHub
+Actions can reach:
 
 ```bash
-gh repo create DIGI-UW/pr-review-kit --public --source=. --push
+gh repo create YOUR-ORG/pr-review-kit --public --source=. --push
 ```
 
-It has to be reachable by the runner. If you make it private, the Action needs
-a token with read access to it.
+If you make it private, the Action needs a token with read access to it.
 
-If you use a different owner or name, update `repository` in
-`.claude-plugin/plugin.json` and the `plugin_marketplaces` URL in
-`examples/claude-review.yml`.
+Changing the owner or the plugin name means editing **three** files — miss one
+and the install silently resolves to somebody else's repo:
+
+- `.claude-plugin/plugin.json` → `repository`
+- `.claude-plugin/marketplace.json` → `name` (this is the `@digi-tools` half of
+  the install command) and `owner`
+- `examples/claude-review.yml` → `plugin_marketplaces` and `plugins`
 
 ### 2. Local path
 
+At the Claude Code prompt:
+
 ```
-/plugin marketplace add https://github.com/DIGI-UW/pr-review-kit.git
+/plugin marketplace add https://github.com/mherman22/pr-review-kit.git
 /plugin install pr-review-kit@digi-tools
 ```
 
@@ -64,6 +91,38 @@ doing on the first few runs.
 The skill deliberately does **not** pin a model, so it inherits your session.
 Run `/model opus` first if you aren't already there — a local review on Sonnet
 is just the CI sweep with extra steps.
+
+#### Arguments
+
+`/pr-review <target> [flags]`
+
+The target is a full PR URL, a bare number (resolved against the current repo),
+or `OWNER/REPO#NUMBER`.
+
+| Flag | Effect |
+|---|---|
+| *(none)* | Findings printed to your terminal. Nothing is published. |
+| `--post` | Publishes findings as **one** inline review (`event: COMMENT` — never approve or request-changes; that call stays human). |
+| `--react` | On a clean pass, adds 👍 to the trigger instead of posting a "looks good" comment. Mainly for CI. |
+| `--fix` | Applies fixes to a local checkout after reporting. Needs write access. Don't combine with `--post` unless you mean it. |
+
+#### Updating
+
+The marketplace is a git clone, so edits to `SKILL.md` reach you only after a
+refresh:
+
+```
+/plugin marketplace update digi-tools
+```
+
+To remove it entirely: `/plugin uninstall pr-review-kit@digi-tools`, then
+`/plugin marketplace remove digi-tools`.
+
+#### The cache
+
+`~/.claude/pr-review-cache/OWNER__REPO/` accumulates one blobless clone per repo
+you review and is never pruned automatically. `rm -rf ~/.claude/pr-review-cache`
+is safe at any time — the next review re-clones.
 
 ### 3. CI path
 
@@ -89,6 +148,37 @@ Note that an OAuth token is tied to the subscription of whoever ran
 `claude_code_oauth_token` for `anthropic_api_key` in the workflow if you go
 that way.
 
+#### Environment the skill reads
+
+Two variables in the workflow's `env:` block are load-bearing, not decoration:
+
+| Variable | Why it matters |
+|---|---|
+| `GH_TOKEN` | Every `gh` call in the skill. Also decides whose name lands on the comments — in CI, the Actions bot. |
+| `TRIGGER_COMMENT_ID` | Lets a clean pass 👍 the exact comment that triggered it. Unset, the skill falls back to reacting to the PR itself. |
+
+## What a review looks like
+
+```
+PR #85: Add semantic search fallback  (+412/-63 across 9 files)
+
+Adds an embedding-backed fallback when keyword search returns nothing.
+Safe to merge once the unbounded retry is addressed.
+
+🔴 Important (1)
+  api/src/search/fallback.ts:142 — retry loop has no ceiling; a persistently
+  failing embedding service spins until the request times out.
+
+🟡 Nit (1)
+  api/src/search/fallback.ts:203 — error swallows the upstream status code.
+
+Verified: 2 confirmed against source, 5 candidates dropped.
+```
+
+That last line is the honest signal. `--post` turns the same content into one
+review with inline comments; findings on lines the diff doesn't touch move into
+the review body under **Additional findings**.
+
 ## Layout
 
 ```
@@ -101,12 +191,13 @@ pr-review-kit/
 │       └── SKILL.md         # ← the only copy of the review logic
 ├── examples/
 │   └── claude-review.yml    # copy into each swept repo
+├── LICENSE
 └── README.md
 ```
 
-One structural rule: only `plugin.json` lives in `.claude-plugin/`. `skills/`
-must sit at the plugin root. Move it inside `.claude-plugin/` and nothing
-loads, with no error message to tell you why.
+One structural rule: `.claude-plugin/` holds **only** the two manifests.
+`skills/` must sit at the plugin root, as a sibling. Move it inside
+`.claude-plugin/` and nothing loads, with no error message to tell you why.
 
 ## Tuning
 
@@ -123,11 +214,43 @@ root and in every directory containing a changed file.
 ## Who can trigger it
 
 The action rejects triggers from users without write access, and rejects bot
-actors unless you list them in `allowed_bots`. So `@claude review` from a
-drive-by commenter on a public repo won't burn a runner.
+actors by default. To let a specific bot through, add `allowed_bots` to the
+action's `with:` block in `claude-review.yml`:
+
+```yaml
+      - uses: anthropics/claude-code-action@v1
+        with:
+          allowed_bots: "dependabot[bot],renovate[bot]"
+```
+
+So `@claude review` from a drive-by commenter on a public repo won't burn a
+runner.
 
 On public repos, GitHub withholds secrets from fork-PR runs, so the sweep only
 covers PRs from branches in the same repository. Fork PRs need the local path.
+
+## Troubleshooting
+
+**`zsh: command not found: plugin`** — you typed a Claude Code slash command in
+your shell. Start `claude`, then type it at that prompt.
+
+**`/plugin marketplace add` fails or finds nothing** — the repo must expose
+`.claude-plugin/marketplace.json` at its root on the default branch, and it must
+be pushed. A local-only commit is invisible to the marketplace resolver.
+
+**Marketplace added, but `/pr-review` doesn't exist** — the plugin installed
+without finding the skill. Confirm `skills/pr-review/SKILL.md` is at the plugin
+root, not under `.claude-plugin/`. This failure is silent by design; there is no
+error to grep for.
+
+**The Action runs but posts nothing** — check, in order: the `if:` gate matched
+the comment body; `pull-requests: write` and `issues: write` are both present in
+`permissions:`; `CLAUDE_CODE_OAUTH_TOKEN` is set and not expired. A clean review
+with `--react` posts *only* a 👍, which is the intended quiet path.
+
+**Review posted as the wrong identity** — comments follow whoever owns
+`GH_TOKEN`. In CI that's `secrets.GITHUB_TOKEN` (the Actions bot); locally it's
+your `gh auth` login.
 
 ## Costs
 
@@ -140,3 +263,7 @@ Anthropic also sells a managed Code Review product that does the multi-agent
 version of this with inline severity annotations. It's Team/Enterprise only and
 runs roughly $15–25 a review, which is exactly the cost problem this repo
 exists to route around.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
