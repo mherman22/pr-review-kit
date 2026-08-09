@@ -150,11 +150,33 @@ or `OWNER/REPO#NUMBER`.
 
 #### Updating
 
-The marketplace is a git clone, so edits to `SKILL.md` reach you only after a
-refresh:
+Edits to `SKILL.md` do **not** reach an installed copy on their own, and this
+trips up everyone who maintains the plugin. Installs are cached per version at
+`~/.claude/plugins/cache/digi-tools/pr-review-kit/<version>/`. Refreshing the
+marketplace updates the git clone next to it, but the installer compares version
+strings and skips a rebuild when they match, so `SKILL.md` changes under an
+unchanged version are silently ignored.
 
+Publishing a change means bumping the version in **both** manifests, which must
+agree:
+
+```bash
+# .claude-plugin/plugin.json      -> "version": "1.2.0"
+# .claude-plugin/marketplace.json -> "version": "1.2.0"
+git commit -am "..." && git push
+claude plugin marketplace update digi-tools
+claude plugin update pr-review-kit@digi-tools
 ```
-/plugin marketplace update digi-tools
+
+Then restart Claude Code. `claude plugin tag` will check that the two manifests
+agree before you cut a release.
+
+If you're iterating fast and don't want a version bump per edit, delete the
+cached copy and reinstall:
+
+```bash
+rm -rf ~/.claude/plugins/cache/digi-tools
+claude plugin install pr-review-kit@digi-tools
 ```
 
 To remove it entirely: `/plugin uninstall pr-review-kit@digi-tools`, then
@@ -294,9 +316,16 @@ be pushed. A local-only commit is invisible to the marketplace resolver.
 must sit at the plugin root, not under `.claude-plugin/`. That failure is silent
 by design; there is no error to grep for.
 
-**Everything installs, but the skill behaves like an older version** — you are
-running the pushed default branch, not your working tree. Push, then
-`claude plugin marketplace update digi-tools`, then restart.
+**Everything installs, but the skill behaves like an older version** — two
+causes, in this order. You didn't push, so the marketplace is still serving the
+old commit. Or you pushed but didn't bump the version, so the installer left the
+cached copy alone. See Updating above. To confirm which copy is live, grep the
+cache directly:
+
+```bash
+grep -c "some phrase you just added" \
+  ~/.claude/plugins/cache/digi-tools/pr-review-kit/*/skills/pr-review/SKILL.md
+```
 
 **The Action runs but posts nothing** — check, in order: the `prompt:` uses the
 namespaced `/pr-review-kit:pr-review` (a bare `/pr-review` burns a runner and

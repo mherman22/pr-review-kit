@@ -2,7 +2,7 @@
   "name": "pr-review-kit",
   "displayName": "PR Review Kit",
   "description": "One PR review skill, two invocation paths: a cheap model sweeping every PR in CI, and a strong model on demand from your laptop.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": { "name": "mherman22" },
   "repository": "https://github.com/mherman22/pr-review-kit",
   "license": "MIT"
