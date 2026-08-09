@@ -4,7 +4,7 @@ One review skill. Two ways to run it.
 
 | | CI sweep | Local deep review |
 |---|---|---|
-| Invoked by | `@claude review` on a PR | `/pr-review <url> --post` |
+| Invoked by | `@claude review` on a PR | `/pr-review-kit:pr-review <url> --post` |
 | Model | Sonnet — cheap enough to run on everything | Opus — for the PRs that matter |
 | Runs on | GitHub Actions runner | your laptop |
 | Comments appear as | the Actions bot | **you** |
@@ -38,9 +38,14 @@ Both paths shell out to real tools. Before anything works you need:
 The CI path additionally needs the [Claude GitHub App](https://github.com/apps/claude)
 installed on the org, and a `CLAUDE_CODE_OAUTH_TOKEN` secret (see below).
 
-> `/plugin` and `/pr-review` are **Claude Code slash commands**. Type them at the
-> Claude Code prompt, not in your shell. `zsh: command not found: plugin` means
-> you're in the wrong place.
+> `/plugin` and `/pr-review-kit:pr-review` are **Claude Code slash commands**.
+> Type them at the Claude Code prompt, not in your shell.
+> `zsh: command not found: plugin` means you're in the wrong place.
+>
+> Every `/plugin ...` command below also has a shell equivalent — `claude plugin
+> marketplace add ...`, `claude plugin install ...`, `claude plugin list`. Those
+> are the ones to reach for when you're debugging a setup, because they print a
+> real success or failure line instead of changing state quietly.
 
 ## Setup
 
@@ -58,6 +63,12 @@ gh repo create YOUR-ORG/pr-review-kit --public --source=. --push
 
 If you make it private, the Action needs a token with read access to it.
 
+**The marketplace resolves from the pushed default branch, never your working
+tree.** If you edit `SKILL.md` or move a file and don't push, the install keeps
+serving the old layout and every symptom below looks like a Claude Code bug.
+This is the single most common way setup fails for the person who *wrote* the
+repo. `git status` before you debug anything else.
+
 Changing the owner or the plugin name means editing **three** files — miss one
 and the install silently resolves to somebody else's repo:
 
@@ -68,18 +79,49 @@ and the install silently resolves to somebody else's repo:
 
 ### 2. Local path
 
-At the Claude Code prompt:
+From your shell, so you can see each step succeed or fail:
 
+```bash
+claude plugin marketplace add https://github.com/mherman22/pr-review-kit.git
+claude plugin install pr-review-kit@digi-tools
 ```
-/plugin marketplace add https://github.com/mherman22/pr-review-kit.git
-/plugin install pr-review-kit@digi-tools
+
+The equivalent `/plugin marketplace add ...` and `/plugin install ...` work at
+the Claude Code prompt too.
+
+**Then restart Claude Code.** A freshly installed plugin is not loaded into the
+session that installed it. Skipping this looks exactly like a failed install.
+
+Verify before you try to use it:
+
+```bash
+claude plugin details pr-review-kit@digi-tools
 ```
+
+You want `Skills (1)  pr-review` in the component inventory. If it says
+`Skills (0)`, the skill wasn't found — see Troubleshooting.
 
 Then, from any directory:
 
 ```
-/pr-review https://github.com/openmrs/openmrs-module-chartsearchai/pull/85 --post
+/pr-review-kit:pr-review https://github.com/openmrs/openmrs-module-chartsearchai/pull/85 --post
 ```
+
+#### The command name is not `/pr-review`
+
+Claude Code namespaces plugin skills as `<plugin>:<skill>`. This plugin is
+`pr-review-kit` and its skill is `pr-review`, so the command is the full
+`/pr-review-kit:pr-review`. A bare `/pr-review` does not resolve to anything.
+
+Two more names are easy to confuse it with, and you may already have both:
+
+| Name | What it is |
+|---|---|
+| `/pr-review-kit:pr-review` | this plugin |
+| `/pr-review-toolkit:review-pr` | Anthropic's official plugin, a different tool |
+| `/pr-reviewer` | a bundled skill, also unrelated |
+
+`claude plugin list` tells you which you actually have.
 
 This works on repos you don't own — it clones to `~/.claude/pr-review-cache/`
 on first use and fetches after that. Comments post under your GitHub identity
@@ -94,7 +136,7 @@ is just the CI sweep with extra steps.
 
 #### Arguments
 
-`/pr-review <target> [flags]`
+`/pr-review-kit:pr-review <target> [flags]`
 
 The target is a full PR URL, a bare number (resolved against the current repo),
 or `OWNER/REPO#NUMBER`.
@@ -238,15 +280,25 @@ your shell. Start `claude`, then type it at that prompt.
 `.claude-plugin/marketplace.json` at its root on the default branch, and it must
 be pushed. A local-only commit is invisible to the marketplace resolver.
 
-**Marketplace added, but `/pr-review` doesn't exist** — the plugin installed
-without finding the skill. Confirm `skills/pr-review/SKILL.md` is at the plugin
-root, not under `.claude-plugin/`. This failure is silent by design; there is no
-error to grep for.
+**`/pr-review` doesn't exist** — it never did. The command is
+`/pr-review-kit:pr-review`. Plugin skills are always namespaced `<plugin>:<skill>`.
 
-**The Action runs but posts nothing** — check, in order: the `if:` gate matched
-the comment body; `pull-requests: write` and `issues: write` are both present in
-`permissions:`; `CLAUDE_CODE_OAUTH_TOKEN` is set and not expired. A clean review
-with `--react` posts *only* a 👍, which is the intended quiet path.
+**Installed, restarted, still no `/pr-review-kit:pr-review`** — run
+`claude plugin details pr-review-kit@digi-tools`. If the inventory says
+`Skills (0)`, the plugin loaded but the skill didn't: `skills/pr-review/SKILL.md`
+must sit at the plugin root, not under `.claude-plugin/`. That failure is silent
+by design; there is no error to grep for.
+
+**Everything installs, but the skill behaves like an older version** — you are
+running the pushed default branch, not your working tree. Push, then
+`claude plugin marketplace update digi-tools`, then restart.
+
+**The Action runs but posts nothing** — check, in order: the `prompt:` uses the
+namespaced `/pr-review-kit:pr-review` (a bare `/pr-review` burns a runner and
+does nothing); the `if:` gate matched the comment body; `pull-requests: write`
+and `issues: write` are both present in `permissions:`; `CLAUDE_CODE_OAUTH_TOKEN`
+is set and not expired. A clean review with `--react` posts *only* a 👍, which is
+the intended quiet path.
 
 **Review posted as the wrong identity** — comments follow whoever owns
 `GH_TOKEN`. In CI that's `secrets.GITHUB_TOKEN` (the Actions bot); locally it's

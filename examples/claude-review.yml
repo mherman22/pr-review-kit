@@ -1,6 +1,6 @@
 # Copy to .github/workflows/claude-review.yml in each repo you want swept.
 #
-# Runs the SAME pr-review skill your local /pr-review runs, on a cheaper model.
+# Runs the SAME skill your local /pr-review-kit:pr-review runs, on a cheaper model.
 # Triggered by commenting "@claude review" on a PR.
 
 name: Claude Review
@@ -47,7 +47,9 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: "https://github.com/mherman22/pr-review-kit.git"
           plugins: "pr-review-kit@digi-tools"
-          prompt: "/pr-review ${{ github.event.issue.number }} --post --react"
+          # Plugin skills are namespaced <plugin>:<skill>. A bare "/pr-review"
+          # does not resolve and the run will silently do nothing useful.
+          prompt: "/pr-review-kit:pr-review ${{ github.event.issue.number }} --post --react"
           claude_args: |
             --model claude-sonnet-5
             --max-turns 60
