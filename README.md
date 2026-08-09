@@ -207,19 +207,24 @@ PR #85: Add semantic search fallback  (+412/-63 across 9 files)
 Adds an embedding-backed fallback when keyword search returns nothing.
 Safe to merge once the unbounded retry is addressed.
 
-🔴 Important (1)
-  api/src/search/fallback.ts:142 — retry loop has no ceiling; a persistently
-  failing embedding service spins until the request times out.
+Bugs (1)
+  api/src/search/fallback.ts:142  retry loop has no ceiling, so a failing
+  embedding service spins until the request times out.
 
-🟡 Nit (1)
-  api/src/search/fallback.ts:203 — error swallows the upstream status code.
+Nits (1)
+  api/src/search/fallback.ts:203  error swallows the upstream status code.
 
-Verified: 2 confirmed against source, 5 candidates dropped.
+Verified 2, dropped 5 unconfirmed.
 ```
 
-That last line is the honest signal. `--post` turns the same content into one
-review with inline comments; findings on lines the diff doesn't touch move into
-the review body under **Additional findings**.
+That last line is the honest signal, and it stays in your terminal. `--post`
+publishes the findings alone, as one review with inline comments. Findings on
+lines the diff doesn't touch move to an `Also:` line in the review body.
+
+Comments are written to be read by someone with eight other tabs open: three
+sentences maximum, no emoji, no bold severity labels, symptom before mechanism.
+`SKILL.md` §7 has the full style rules and a worked before/after. Loosen them
+there if your team wants more detail.
 
 ## Layout
 

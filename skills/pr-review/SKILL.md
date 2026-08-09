@@ -100,7 +100,8 @@ review trustworthy. For each candidate:
 
 **Drop anything you cannot confirm this way.** A confident wrong finding costs
 the author more than a missed nit does. Report how many candidates you dropped
-— that number is the honest signal of how hard you looked.
+in the terminal (§6). That number is the honest signal of how hard you looked,
+but it belongs to you, not to the PR author.
 
 ## 6. Report to the terminal
 
@@ -109,17 +110,20 @@ PR #NUMBER: <title>  (+A/-D across F files)
 
 <one line: what this PR does, and whether it looks safe to merge>
 
-🔴 Important (N)
-  path/to/file.ts:142 — <what breaks, and when>
+Bugs (N)
+  path/to/file.ts:142  <what breaks, and when>
 
-🟡 Nit (N)
-  path/to/file.ts:203 — <issue>
+Nits (N)
+  path/to/file.ts:203  <issue>
 
-Verified: <X> confirmed against source, <Y> candidates dropped.
+Verified <X>, dropped <Y> unconfirmed.
 ```
 
 If nothing survived verification, say so in one line. Never manufacture a
 finding to justify the run.
+
+The dropped count stays in the terminal. It tells *you* how hard the review
+looked. It is noise to the PR author, so it never goes in a posted comment.
 
 ## 7. Publish
 
@@ -143,6 +147,56 @@ If there are no findings:
 The 👍 is load-bearing. It means *the review ran and found nothing*, which is a
 different statement from *the review didn't run*. Never skip it on a clean pass.
 
+### How to write the comments
+
+You are writing to a tired engineer who has eight other tabs open. They will
+read your first sentence and skim the rest. Write for that person.
+
+**Hard limits.** An inline comment is at most three sentences. Sentence one
+names the problem and must make sense alone. Sentence two gives the evidence
+with a `file:line`. Sentence three, if it exists, is the fix. Cut anything that
+survives after that. The review summary is at most four sentences.
+
+**Never use:**
+
+- Emoji, anywhere.
+- Bold severity labels. Start with a plain `Bug:` or `Nit:` and nothing else.
+- Em dashes. Use a period or a comma.
+- Preamble: "It's worth spelling out that", "The headline issue is", "Note that".
+- Transition words you'd never say aloud: "Additionally", "Moreover", "Furthermore".
+- The "not just X, but Y" construction, and lists of exactly three things where
+  two would do.
+- Restating what the PR does before saying what's wrong with it.
+
+**Always:**
+
+- Name the symptom before the mechanism. "Every save returns 400" lands; "the
+  argument resolver runs bean validation before the controller body" does not,
+  until they know why they should care.
+- Say the concrete consequence. Which user, doing what, sees what break.
+- Use backticks for identifiers, not bold.
+- Give the fix as a short clause, not a paragraph of options.
+
+Compare. Too long:
+
+> 🔴 **Important** — `@NotNull @Size(min = 1)` makes the auto-generation feature
+> unreachable and breaks the existing catalog form.
+>
+> `InventoryItemRestController.create()` and `update()` both declare `@Valid
+> @RequestBody InventoryItem item`. `@EnableWebMvc` is on `AppConfig:55`,
+> hibernate-validator 8.0.2 is a compile dependency, and `ControllerSetup:87`
+> handles `MethodArgumentNotValidException` with a 400, so validation fires in
+> the argument resolver, before the method body. [...]
+
+What to write instead:
+
+> Bug: every Add and Edit in the catalog form will 400 after this. `code` is
+> `@NotNull`, but `InventoryItemForm.jsx` never sends it, and `@Valid` rejects
+> the payload before `resolveCode()` can fill it in. Drop the annotation and let
+> `nullable = false` enforce it.
+
+Same finding, same evidence, one third the length.
+
 ### Findings to publish
 
 With `--post`, submit **one review**, not N loose comments. Write the payload
@@ -151,10 +205,10 @@ to a temp file:
 ```json
 {
   "event": "COMMENT",
-  "body": "<the summary line from §6, plus an Additional findings section if needed>",
+  "body": "<summary: what this does, whether it's safe to merge, the one thing that matters most>",
   "comments": [
     { "path": "src/auth/session.ts", "line": 142, "side": "RIGHT",
-      "body": "🔴 **Important** — <finding>\n\n<why, citing file:line evidence>" }
+      "body": "Bug: sessions survive logout. `revoke()` clears the cookie but never deletes the row, so a replayed token still resolves at session.ts:88. Delete the record here." }
   ]
 }
 ```
@@ -165,11 +219,13 @@ gh api repos/OWNER/REPO/pulls/NUMBER/reviews --method POST --input /tmp/pr-revie
 
 Rules:
 
-- Always `event: "COMMENT"`. Never `APPROVE` or `REQUEST_CHANGES` — that call
+- Always `event: "COMMENT"`. Never `APPROVE` or `REQUEST_CHANGES`. That call
   belongs to a human.
 - `line` must exist in the diff on the `RIGHT` side. A finding about an
-  untouched line goes in the review `body` under **Additional findings**, not
-  inline.
+  untouched line goes at the end of the review `body` under a plain
+  `Also:` line, one sentence each, not inline.
+- No finding counts, no verification tally, and no list of what you dropped.
+  That is terminal output. The author only needs the findings themselves.
 - If the API rejects the payload, report the error *and* the full findings to
   the terminal. Never retry with a mangled payload.
 
